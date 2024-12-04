@@ -3,6 +3,7 @@ package nyc
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"parkit-data-ETL/internal/models"
 	"strconv"
@@ -26,7 +27,6 @@ type apiResponse []struct {
 	MeterNumber  string `json:"meter_number"`
 	Status       string `json:"status"`
 	PayByCell    string `json:"pay_by_cell_number"`
-	Type         string `json:"meter_type"`
 	Hours        string `json:"meter_hours"`
 	Facility     string `json:"facility"`
 	FacilityName string `json:"facility_name"`
@@ -52,7 +52,9 @@ func NewClient(config Config) *Client {
 }
 
 func (c *Client) FetchParkingMeters(offset int) ([]models.ParkingMeter, error) {
-	req, err := http.NewRequest("GET", c.baseURL, nil)
+	// No limit to fetch all records at once
+	url := fmt.Sprintf("%s?$offset=%d", c.baseURL, offset)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -70,14 +72,77 @@ func (c *Client) FetchParkingMeters(offset int) ([]models.ParkingMeter, error) {
 		return nil, err
 	}
 
-	meters := make([]models.ParkingMeter, len(apiResp))
-	for i, result := range apiResp {
+	meters := make([]models.ParkingMeter, 0, len(apiResp))
+	for _, result := range apiResp {
+		// Debug logging for specific meter
+		if result.MeterNumber == "4863002" {
+			rawJSON, _ := json.MarshalIndent(result, "", "  ")
+			log.Printf("Found meter 4863002 - Raw data:\n%s", string(rawJSON))
+		}
+
 		duration, vehicleType, meterDays, meterHours := parseMeterInfo(result.Hours)
-		facility := parseFacility(result.Facility)
 
-		objectID, _ := strconv.Atoi(result.ObjectID)
+		// Skip records with missing facility data
+		if result.Facility == "" {
+			log.Printf("Warning: Skipping meter %s due to missing facility data", result.MeterNumber)
+			continue
+		}
 
-		meters[i] = models.ParkingMeter{
+		// Check if it's an on-street meter
+		isOnStreet := strings.EqualFold(result.Facility, "on street")
+		if isOnStreet {
+			// Validate required street information for on-street meters
+			if result.OnStreet == "" || result.FromStreet == "" || result.ToStreet == "" || result.SideStreet == "" {
+				log.Printf("Warning: Skipping on-street meter %s due to missing street information", result.MeterNumber)
+				continue
+			}
+		} else {
+			// Must be off-street, validate facility name
+			if result.FacilityName == "" {
+				// Try to construct facility name from street info, but only if they look like valid street names
+				if result.FromStreet != "" && result.OnStreet != "" &&
+				   !strings.EqualFold(result.FromStreet, "null") && !strings.EqualFold(result.OnStreet, "null") &&
+				   !strings.EqualFold(result.FromStreet, "n/a") && !strings.EqualFold(result.OnStreet, "n/a") {
+					// Format street names with proper case and handle ordinal suffixes
+					fromStreet := strings.Title(strings.ToLower(result.FromStreet))
+					onStreet := strings.Title(strings.ToLower(result.OnStreet))
+					// Convert "31 STREET" to "31st Street"
+					if strings.Contains(onStreet, " Street") {
+						parts := strings.Split(onStreet, " ")
+						if num, err := strconv.Atoi(parts[0]); err == nil {
+							suffix := "th"
+							switch num % 10 {
+							case 1:
+								if num%100 != 11 {
+									suffix = "st"
+								}
+							case 2:
+								if num%100 != 12 {
+									suffix = "nd"
+								}
+							case 3:
+								if num%100 != 13 {
+									suffix = "rd"
+								}
+							}
+							onStreet = fmt.Sprintf("%d%s %s", num, suffix, parts[1])
+						}
+					}
+					result.FacilityName = fmt.Sprintf("%s-%s", fromStreet, onStreet)
+				} else {
+					log.Printf("Warning: Skipping off-street meter %s due to missing facility name and invalid street info", result.MeterNumber)
+					continue
+				}
+			}
+		}
+
+		objectID, err := strconv.Atoi(result.ObjectID)
+		if err != nil {
+			log.Printf("Warning: Failed to convert ObjectID '%s' to integer: %v", result.ObjectID, err)
+			continue
+		}
+
+		meters = append(meters, models.ParkingMeter{
 			ObjectID:     objectID,
 			MeterNumber:  result.MeterNumber,
 			Status:       result.Status,
@@ -86,7 +151,7 @@ func (c *Client) FetchParkingMeters(offset int) ([]models.ParkingMeter, error) {
 			Duration:     duration,
 			MeterDays:    meterDays,
 			MeterHours:   meterHours,
-			Facility:     facility,
+			Facility:     !isOnStreet, // false for on-street, true for off-street
 			FacilityName: result.FacilityName,
 			Borough:      result.Borough,
 			OnStreet:     result.OnStreet,
@@ -97,7 +162,7 @@ func (c *Client) FetchParkingMeters(offset int) ([]models.ParkingMeter, error) {
 				Type:        result.Location.Type,
 				Coordinates: result.Location.Coordinates,
 			},
-		}
+		})
 	}
 
 	return meters, nil
@@ -136,12 +201,15 @@ func (c *Client) GetTotalCount() (int, error) {
 	return count, nil
 }
 
-func parseFacility(facility string) bool {
-	return !strings.Contains(strings.ToUpper(facility), "ON STREET")
-}
-
 func parseMeterInfo(hours string) (duration int, vehicleType models.VehicleType, meterDays models.MeterDays, meterHours models.MeterHours) {
+	if hours == "" {
+		return 0, models.PAS, models.MeterDays{}, models.MeterHours{}
+	}
+
 	parts := strings.Fields(hours) // Split by whitespace
+	if len(parts) == 0 {
+		return 0, models.PAS, models.MeterDays{}, models.MeterHours{}
+	}
 
 	// Parse duration (first number)
 	duration, _ = strconv.Atoi(parts[0])

@@ -67,8 +67,8 @@ func (s *SyncService) Run() error {
 			batchNum-1, len(meters), totalProcessed,
 			float64(totalProcessed)/float64(totalCount)*100)
 
-		// Break if we've processed all records or got less than expected
-		if totalProcessed >= totalCount || len(meters) < 1000 {
+		// Break if we've processed all records
+		if totalProcessed >= totalCount {
 			break
 		}
 

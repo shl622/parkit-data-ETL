@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -34,9 +35,9 @@ func Connect(config *Config) (*MongoDB, error) {
 	// Create indexes
 	collection := client.Database(config.Database).Collection("parking_meters")
 
-	// Create a unique index on objectId
+	// Create a unique index on meter_number
 	_, err = collection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "objectId", Value: 1}},
+		Keys:    bson.D{{Key: "meter_number", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
@@ -71,7 +72,7 @@ func (m *MongoDB) UpsertParkingMeters(meters []models.ParkingMeter) error {
 	var operations []mongo.WriteModel
 
 	for _, meter := range meters {
-		filter := bson.M{"objectId": meter.ObjectID}
+		filter := bson.M{"meter_number": meter.MeterNumber}
 		update := bson.M{"$set": meter}
 		model := mongo.NewUpdateOneModel().
 			SetFilter(filter).
@@ -84,6 +85,17 @@ func (m *MongoDB) UpsertParkingMeters(meters []models.ParkingMeter) error {
 		return nil
 	}
 
-	_, err := m.collection.BulkWrite(ctx, operations)
-	return err
+	result, err := m.collection.BulkWrite(ctx, operations)
+	if err != nil {
+		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
+			for _, writeErr := range bulkErr.WriteErrors {
+				log.Printf("MongoDB write error: %v (code: %d, index: %d)", writeErr.Message, writeErr.Code, writeErr.Index)
+			}
+		}
+		return err
+	}
+	
+	log.Printf("MongoDB bulk write result - Matched: %d, Modified: %d, Inserted: %d",
+		result.MatchedCount, result.ModifiedCount, result.UpsertedCount)
+	return nil
 }

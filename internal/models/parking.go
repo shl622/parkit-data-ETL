@@ -35,8 +35,8 @@ type MeterDays struct {
 
 type ParkingMeter struct {
 	ID           primitive.ObjectID `json:"_id" bson:"_id,omitempty"`
-	ObjectID     int                `json:"objectId" bson:"objectId"`
-	MeterNumber  string             `json:"meterNumber" bson:"meter_number"`
+	ObjectID     int                `json:"objectId" bson:"object_id"`
+	MeterNumber  string             `json:"meterNumber" bson:"meter_number,unique"`
 	Status       string             `json:"status" bson:"status"`
 	PayByCell    string             `json:"payByCell" bson:"pay_by_cell"`
 	VehicleType  VehicleType        `json:"vehicleType" bson:"vehicle_type"`
