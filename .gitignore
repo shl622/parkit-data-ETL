@@ -1,0 +1,31 @@
+# Environment variables
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Go build
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go testing
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build output
+cmd/sync/main
+
+# Serverless
+.serverless/
+.serverless

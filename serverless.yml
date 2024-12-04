@@ -1,0 +1,25 @@
+service: parkit-data-etl
+
+provider:
+  name: aws
+  runtime: provided.al2
+  region: us-east-1
+  environment:
+    NYC_API_URL: ${ssm:/parkit/nyc_api_url}
+    NYC_API_APP_TOKEN: ${ssm:/parkit/nyc_api_token}
+    MONGODB_URI: ${ssm:/parkit/mongodb_uri}
+    MONGODB_DATABASE: ${ssm:/parkit/mongodb_database}
+    BATCH_SIZE: ${ssm:/parkit/batch_size}
+
+package:
+  patterns:
+    - '!./**'
+    - './cmd/sync/main'
+
+functions:
+  sync:
+    handler: main
+    events:
+      - schedule: rate(7 days)
+    timeout: 300 # 5 minutes
+    memorySize: 256

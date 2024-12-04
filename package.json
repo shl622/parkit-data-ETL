@@ -1,0 +1,12 @@
+{
+  "name": "parkit-data-etl",
+  "version": "1.0.0",
+  "description": "NYC Parking Meters ETL Pipeline",
+  "scripts": {
+    "deploy": "serverless deploy"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-dotenv-plugin": "^6.0.0"
+  }
+}
